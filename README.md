@@ -20,7 +20,7 @@ The project is structured with a strong focus on modularity and extensibility:
 
 ## Features
 
-- **Multi-Database Support**: Connect to multiple databases (PostgreSQL, MySQL) simultaneously.
+- **Multi-Database Support**: Connect to multiple databases (PostgreSQL, MySQL, SQLite) simultaneously.
 - **Dynamic Routing**: Route queries to specific databases using connection IDs.
 - **Safe Read-Only Querying**: The `run_readonly_query` tool strictly filters out destructive SQL keywords (`DROP`, `DELETE`, `UPDATE`, `INSERT`, `TRUNCATE`, `ALTER`) and automatically enforces a `LIMIT 50` on all queries to prevent memory overload.
 
@@ -37,7 +37,7 @@ The project is structured with a strong focus on modularity and extensibility:
 
 ### 1. Prerequisites
 - Go 1.21 or later
-- Access to a PostgreSQL and/or MySQL database.
+- Access to a PostgreSQL, MySQL, or SQLite database.
 
 ### 2. Build the Server
 ```bash
@@ -61,7 +61,8 @@ To configure this server in Cursor or Antigravity, add it to your MCP settings. 
       "command": "/absolute/path/to/go-db-mcp/go-db-mcp",
       "env": {
         "POSTGRES_DSN": "postgres://user:password@localhost:5432/dbname?sslmode=disable",
-        "MYSQL_DSN": "user:password@tcp(localhost:3306)/dbname"
+        "MYSQL_DSN": "user:password@tcp(localhost:3306)/dbname",
+        "SQLITE_DSN": "/absolute/path/to/database.sqlite"
       }
     }
   }

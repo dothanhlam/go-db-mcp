@@ -39,6 +39,17 @@ func NewConnectionManager(ctx context.Context) (*ConnectionManager, error) {
 		fmt.Println("Initialized MySQL connection: mysql_legacy")
 	}
 
+	// Initialize SQLite connections
+	sqliteDSN := os.Getenv("SQLITE_DSN")
+	if sqliteDSN != "" {
+		sqliteAdapter, err := NewSqliteAdapter(sqliteDSN)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize SQLite adapter: %w", err)
+		}
+		manager.clients["sqlite_local"] = sqliteAdapter
+		fmt.Println("Initialized SQLite connection: sqlite_local")
+	}
+
 	return manager, nil
 }
 
