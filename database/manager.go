@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 )
 
@@ -25,7 +26,7 @@ func NewConnectionManager(ctx context.Context) (*ConnectionManager, error) {
 			return nil, fmt.Errorf("failed to initialize PostgreSQL adapter: %w", err)
 		}
 		manager.clients["pg_main"] = pgAdapter
-		fmt.Println("Initialized PostgreSQL connection: pg_main")
+		log.Println("Initialized PostgreSQL connection: pg_main")
 	}
 
 	// Initialize MySQL connections
@@ -36,7 +37,7 @@ func NewConnectionManager(ctx context.Context) (*ConnectionManager, error) {
 			return nil, fmt.Errorf("failed to initialize MySQL adapter: %w", err)
 		}
 		manager.clients["mysql_legacy"] = mysqlAdapter
-		fmt.Println("Initialized MySQL connection: mysql_legacy")
+		log.Println("Initialized MySQL connection: mysql_legacy")
 	}
 
 	// Initialize SQLite connections
@@ -47,7 +48,7 @@ func NewConnectionManager(ctx context.Context) (*ConnectionManager, error) {
 			return nil, fmt.Errorf("failed to initialize SQLite adapter: %w", err)
 		}
 		manager.clients["sqlite_local"] = sqliteAdapter
-		fmt.Println("Initialized SQLite connection: sqlite_local")
+		log.Println("Initialized SQLite connection: sqlite_local")
 	}
 
 	return manager, nil
