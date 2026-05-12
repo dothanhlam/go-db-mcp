@@ -82,13 +82,22 @@ In your configuration JSON, it should look like this:
 }
 ```
 
-#### Environment Variables
-Since the server now runs independently, make sure you set your database credentials in the environment where you launch `./go-db-mcp`:
-```bash
-export POSTGRES_DSN="postgres://user:password@localhost:5432/dbname"
-export MYSQL_DSN="user:password@tcp(localhost:3306)/dbname"
-./go-db-mcp
-```
+#### Database Configuration
+This server does NOT use environment variables for database connections anymore. Instead, you configure your databases dynamically via the MCP interface using the `configure_connection` tool.
+
+**Benefits:**
+- No need to manage secrets in your shell or `.env` files.
+- Add or switch databases at runtime without restarting the server.
+- The AI can automatically set up the connection if you provide the DSN in the chat.
+
+**How to configure:**
+Ask the AI (Cursor/Antigravity) to:
+> "Configure a new postgres connection named 'my_db' with DSN 'postgres://user:pass@localhost:5432/dbname'"
+
+The AI will use the `configure_connection` tool:
+- `connection_id`: `my_db`
+- `db_type`: `postgres`
+- `dsn`: `postgres://user:pass@localhost:5432/dbname`
 
 ---
 *Built using the [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) SDK.*

@@ -29,7 +29,7 @@ func onReady() {
 	mQuit := systray.AddMenuItem("Quit", "Quit the app")
 
 	mAbout.Click(func() {
-		script := `display alert "DB MCP Server" message "A Multi-Database Model Context Protocol (MCP) Server.\n\nRunning as HTTP/SSE server on port 6969 by default." as informational`
+		script := `display alert "DB MCP Server" message "A Multi-Database Model Context Protocol (MCP) Server.\n\nConfigure your databases dynamically via the 'configure_connection' tool." as informational`
 		cmd := exec.Command("osascript", "-e", script)
 		_ = cmd.Run()
 	})
@@ -50,7 +50,7 @@ func onReady() {
 
 		availableConnections := manager.GetAvailableConnections()
 		if len(availableConnections) == 0 {
-			log.Println("Warning: No database connections configured. Check your environment variables (POSTGRES_DSN, MYSQL_DSN).")
+			log.Println("Note: No database connections configured yet. Use the 'configure_connection' tool to add one.")
 		}
 
 		// 2. Initialize the mcp-go server
@@ -60,7 +60,8 @@ func onReady() {
 			server.WithLogging(),
 		)
 
-		// 3. Register the 3 tools
+		// 3. Register the tools
+		tools.RegisterConfigureConnectionTool(s, manager)
 		tools.RegisterListTablesTool(s, manager)
 		tools.RegisterGetSchemaTool(s, manager)
 		tools.RegisterReadonlyQueryTool(s, manager)

@@ -4,58 +4,55 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
+	"sync"
 )
 
 // ConnectionManager manages multiple database connections.
 type ConnectionManager struct {
 	clients map[string]DatabaseClient
+	mu      sync.RWMutex
 }
 
-// NewConnectionManager creates and initializes a ConnectionManager from environment variables.
+// NewConnectionManager creates an empty ConnectionManager.
 func NewConnectionManager(ctx context.Context) (*ConnectionManager, error) {
 	manager := &ConnectionManager{
 		clients: make(map[string]DatabaseClient),
 	}
-
-	// Initialize PostgreSQL connections
-	pgDSN := os.Getenv("POSTGRES_DSN")
-	if pgDSN != "" {
-		pgAdapter, err := NewPostgresAdapter(ctx, pgDSN)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize PostgreSQL adapter: %w", err)
-		}
-		manager.clients["pg_main"] = pgAdapter
-		log.Println("Initialized PostgreSQL connection: pg_main")
-	}
-
-	// Initialize MySQL connections
-	mysqlDSN := os.Getenv("MYSQL_DSN")
-	if mysqlDSN != "" {
-		mysqlAdapter, err := NewMysqlAdapter(mysqlDSN)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize MySQL adapter: %w", err)
-		}
-		manager.clients["mysql_legacy"] = mysqlAdapter
-		log.Println("Initialized MySQL connection: mysql_legacy")
-	}
-
-	// Initialize SQLite connections
-	sqliteDSN := os.Getenv("SQLITE_DSN")
-	if sqliteDSN != "" {
-		sqliteAdapter, err := NewSqliteAdapter(sqliteDSN)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize SQLite adapter: %w", err)
-		}
-		manager.clients["sqlite_local"] = sqliteAdapter
-		log.Println("Initialized SQLite connection: sqlite_local")
-	}
-
 	return manager, nil
+}
+
+// AddConnection dynamically registers a new database connection.
+func (m *ConnectionManager) AddConnection(ctx context.Context, id, dbType, dsn string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var adapter DatabaseClient
+	var err error
+
+	switch dbType {
+	case "postgres":
+		adapter, err = NewPostgresAdapter(ctx, dsn)
+	case "mysql":
+		adapter, err = NewMysqlAdapter(dsn)
+	case "sqlite":
+		adapter, err = NewSqliteAdapter(dsn)
+	default:
+		return fmt.Errorf("unsupported database type: %s", dbType)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	m.clients[id] = adapter
+	log.Printf("Dynamically registered %s connection: %s", dbType, id)
+	return nil
 }
 
 // GetClient retrieves a database client by its connection ID.
 func (m *ConnectionManager) GetClient(connectionID string) (DatabaseClient, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	client, exists := m.clients[connectionID]
 	if !exists {
 		return nil, fmt.Errorf("connection ID '%s' not found", connectionID)
@@ -65,6 +62,8 @@ func (m *ConnectionManager) GetClient(connectionID string) (DatabaseClient, erro
 
 // GetAvailableConnections returns a list of configured connection IDs.
 func (m *ConnectionManager) GetAvailableConnections() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	var connections []string
 	for id := range m.clients {
 		connections = append(connections, id)
