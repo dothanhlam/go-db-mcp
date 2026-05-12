@@ -45,30 +45,50 @@ go mod tidy
 go build -o go-db-mcp main.go
 ```
 
-### 3. Running the Server (Standalone)
-Because this is an MCP server running over STDIO, running it directly in a standard terminal will just wait for JSON-RPC messages. 
+### 3. Running the Server
+The server runs as an HTTP server using the Server-Sent Events (SSE) transport by default on port `6969`.
+
 ```bash
 ./go-db-mcp
 ```
 
-### 4. Integration with Cursor / Antigravity
-To configure this server in Cursor or Antigravity, add it to your MCP settings. You can pass the database credentials directly in the `env` block:
+You can override the port using the `PORT` or `MCP_PORT` environment variables:
+```bash
+PORT=8080 ./go-db-mcp
+```
 
+The endpoints are:
+- **SSE Connection**: `GET http://localhost:6969/sse`
+- **Messages**: `POST http://localhost:6969/messages`
+
+### 4. Integration with Cursor / Antigravity
+To configure this server, add it to your MCP settings using the **SSE** transport type.
+
+#### SSE Configuration (Recommended)
+Add a new MCP server with the type `SSE` and the following URL:
+```text
+http://localhost:6969/sse
+```
+
+In your configuration JSON, it should look like this:
 ```json
 {
   "mcpServers": {
     "go-db-mcp": {
-      "command": "/absolute/path/to/go-db-mcp/go-db-mcp",
-      "env": {
-        "POSTGRES_DSN": "postgres://user:password@localhost:5432/dbname?sslmode=disable",
-        "MYSQL_DSN": "user:password@tcp(localhost:3306)/dbname",
-        "SQLITE_DSN": "/absolute/path/to/database.sqlite"
-      }
+      "type": "sse",
+      "url": "http://localhost:6969/sse"
     }
   }
 }
 ```
-*Note: Make sure the `command` points to the absolute path of the built binary.*
+
+#### Environment Variables
+Since the server now runs independently, make sure you set your database credentials in the environment where you launch `./go-db-mcp`:
+```bash
+export POSTGRES_DSN="postgres://user:password@localhost:5432/dbname"
+export MYSQL_DSN="user:password@tcp(localhost:3306)/dbname"
+./go-db-mcp
+```
 
 ---
 *Built using the [mark3labs/mcp-go](https://github.com/mark3labs/mcp-go) SDK.*

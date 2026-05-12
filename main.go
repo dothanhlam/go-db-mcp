@@ -29,7 +29,7 @@ func onReady() {
 	mQuit := systray.AddMenuItem("Quit", "Quit the app")
 
 	mAbout.Click(func() {
-		script := `display alert "DB MCP Server" message "A Multi-Database Model Context Protocol (MCP) Server.\n\nRunning in background." as informational`
+		script := `display alert "DB MCP Server" message "A Multi-Database Model Context Protocol (MCP) Server.\n\nRunning as HTTP/SSE server on port 6969 by default." as informational`
 		cmd := exec.Command("osascript", "-e", script)
 		_ = cmd.Run()
 	})
@@ -68,13 +68,26 @@ func onReady() {
 		// Add an informational tool to get configured connections
 		registerInfoTool(s, manager)
 
-		// 4. Start the server using STDIO
-		if err := server.ServeStdio(s); err != nil {
-			log.Printf("Server error: %v", err)
+		// 4. Start the server
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = os.Getenv("MCP_PORT")
+		}
+		if port == "" {
+			port = "6969"
 		}
 
-		// If ServeStdio returns, it usually means stdin is closed. We should quit.
-		systray.Quit()
+		// Start as SSE server
+		sse := server.NewSSEServer(s)
+
+		log.Printf("Starting MCP SSE server on :%s", port)
+		// Update tooltip to show port
+		systray.SetTooltip(fmt.Sprintf("Database MCP Server (SSE :%s)", port))
+
+		if err := sse.Start(":" + port); err != nil {
+			log.Printf("SSE server error: %v", err)
+			systray.Quit()
+		}
 	}()
 }
 
