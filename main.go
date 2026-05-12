@@ -11,7 +11,7 @@ import (
 	"github.com/dothanhlam/go-db-mcp/database"
 	"github.com/dothanhlam/go-db-mcp/icon"
 	"github.com/dothanhlam/go-db-mcp/tools"
-	"github.com/getlantern/systray"
+	"github.com/energye/systray"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -28,18 +28,15 @@ func onReady() {
 	mAbout := systray.AddMenuItem("About", "About DB MCP")
 	mQuit := systray.AddMenuItem("Quit", "Quit the app")
 
-	go func() {
-		for {
-			select {
-			case <-mAbout.ClickedCh:
-				script := `display alert "DB MCP Server" message "A Multi-Database Model Context Protocol (MCP) Server.\n\nRunning in background." as informational`
-				cmd := exec.Command("osascript", "-e", script)
-				_ = cmd.Run()
-			case <-mQuit.ClickedCh:
-				systray.Quit()
-			}
-		}
-	}()
+	mAbout.Click(func() {
+		script := `display alert "DB MCP Server" message "A Multi-Database Model Context Protocol (MCP) Server.\n\nRunning in background." as informational`
+		cmd := exec.Command("osascript", "-e", script)
+		_ = cmd.Run()
+	})
+
+	mQuit.Click(func() {
+		systray.Quit()
+	})
 
 	// Run the MCP server in a background goroutine
 	go func() {
