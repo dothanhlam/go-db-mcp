@@ -61,7 +61,21 @@ The endpoints are:
 - **SSE Connection**: `GET http://localhost:6969/sse`
 - **Messages**: `POST http://localhost:6969/messages`
 
-### 4. Integration with Cursor / Antigravity
+### 4. Docker Deployment
+
+The project can be run as a Docker container. The provided `Dockerfile` uses a multi-stage build to keep the image as small as possible.
+
+**Important Note on System Tray:**
+The application natively uses `github.com/energye/systray` to display an icon in your operating system's menu bar (e.g., the Mac topbar). Docker containers run in isolated Linux environments without access to your host OS's native GUI APIs. To prevent the application from crashing in Docker, it is configured to run headlessly within a virtual framebuffer (`xvfb-run`) and a mock D-Bus session.
+**As a result, the tray icon will NOT be visible on your host machine when running via Docker.** If you require the tray icon to be visible, please run the application natively on your host machine.
+
+**Build and Run:**
+```bash
+docker build -t go-db-mcp .
+docker run -d -p 6969:6969 --name go-db-mcp go-db-mcp
+```
+
+### 5. Integration with Cursor / Antigravity
 To configure this server, add it to your MCP settings using the **SSE** transport type.
 
 #### SSE Configuration (Recommended)
