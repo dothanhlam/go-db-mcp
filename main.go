@@ -16,6 +16,9 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// manager holds the active connections so it can be shut down cleanly on exit.
+var manager *database.ConnectionManager
+
 func main() {
 	systray.Run(onReady, onExit)
 }
@@ -23,7 +26,6 @@ func main() {
 func onReady() {
 	systray.SetTemplateIcon(icon.Data, icon.Data)
 	systray.SetTooltip("Database MCP Server")
-
 
 	mAbout := systray.AddMenuItem("About", "About DB MCP")
 	mQuit := systray.AddMenuItem("Quit", "Quit the app")
@@ -43,7 +45,8 @@ func onReady() {
 		ctx := context.Background()
 
 		// 1. Initialize the ConnectionManager
-		manager, err := database.NewConnectionManager(ctx)
+		var err error
+		manager, err = database.NewConnectionManager(ctx)
 		if err != nil {
 			log.Fatalf("Failed to initialize connection manager: %v", err)
 		}
@@ -78,14 +81,22 @@ func onReady() {
 			port = "6969"
 		}
 
+		// Bind to loopback by default so the open-ended configure_connection tool
+		// isn't reachable from the network. Override with HOST=0.0.0.0 (e.g. Docker).
+		host := os.Getenv("HOST")
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		addr := host + ":" + port
+
 		// Start as SSE server
 		sse := server.NewSSEServer(s)
 
-		log.Printf("Starting MCP SSE server on :%s", port)
+		log.Printf("Starting MCP SSE server on %s", addr)
 		// Update tooltip to show port
 		systray.SetTooltip(fmt.Sprintf("Database MCP Server (SSE :%s)", port))
 
-		if err := sse.Start(":" + port); err != nil {
+		if err := sse.Start(addr); err != nil {
 			log.Printf("SSE server error: %v", err)
 			systray.Quit()
 		}
@@ -93,6 +104,9 @@ func onReady() {
 }
 
 func onExit() {
+	if manager != nil {
+		manager.CloseAll()
+	}
 	os.Exit(0)
 }
 

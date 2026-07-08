@@ -44,9 +44,28 @@ func (m *ConnectionManager) AddConnection(ctx context.Context, id, dbType, dsn s
 		return err
 	}
 
+	// Close any existing connection registered under this ID to avoid leaking it.
+	if old, exists := m.clients[id]; exists {
+		if cerr := old.Close(); cerr != nil {
+			log.Printf("Warning: failed to close previous connection %s: %v", id, cerr)
+		}
+	}
+
 	m.clients[id] = adapter
 	log.Printf("Dynamically registered %s connection: %s", dbType, id)
 	return nil
+}
+
+// CloseAll closes every registered connection. Intended for graceful shutdown.
+func (m *ConnectionManager) CloseAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, client := range m.clients {
+		if err := client.Close(); err != nil {
+			log.Printf("Warning: failed to close connection %s: %v", id, err)
+		}
+		delete(m.clients, id)
+	}
 }
 
 // GetClient retrieves a database client by its connection ID.

@@ -3,12 +3,30 @@ package database
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
-	"strings"
+	"sync"
 
-	_ "github.com/mattn/go-sqlite3"
+	sqlite3 "github.com/mattn/go-sqlite3"
 )
+
+// sqliteReadonlyDriver is a sqlite3 driver variant that sets PRAGMA query_only
+// on every new connection, enforcing read-only access at the engine level.
+const sqliteReadonlyDriver = "sqlite3_readonly"
+
+var registerSqliteDriverOnce sync.Once
+
+func registerSqliteReadonlyDriver() {
+	registerSqliteDriverOnce.Do(func() {
+		sql.Register(sqliteReadonlyDriver, &sqlite3.SQLiteDriver{
+			ConnectHook: func(conn *sqlite3.SQLiteConn) error {
+				_, err := conn.Exec("PRAGMA query_only = ON;", []driver.Value{})
+				return err
+			},
+		})
+	})
+}
 
 // SqliteAdapter implements DatabaseClient for SQLite.
 type SqliteAdapter struct {
@@ -17,14 +35,20 @@ type SqliteAdapter struct {
 
 // NewSqliteAdapter creates a new SqliteAdapter.
 func NewSqliteAdapter(dsn string) (*SqliteAdapter, error) {
+	registerSqliteReadonlyDriver()
+
 	// DSN for SQLite is just the file path
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open(sqliteReadonlyDriver, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to database: %v", err)
 	}
 
+	// SQLite allows a single writer; serialize access to avoid "database is locked".
+	db.SetMaxOpenConns(1)
+
 	// Test the connection
 	if err := db.Ping(); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("unable to ping database: %v", err)
 	}
 
@@ -60,12 +84,13 @@ func (s *SqliteAdapter) ListTables(ctx context.Context) ([]string, error) {
 }
 
 func (s *SqliteAdapter) GetSchema(ctx context.Context, tableName string) (string, error) {
-	// Prevent very basic SQL injection
-	if strings.ContainsAny(tableName, " ;'`\"") {
-		return "", fmt.Errorf("invalid table name")
+	// Allowlist the identifier against the real tables; PRAGMA arguments cannot
+	// be parameterized, so an allowlist is the safe way to interpolate.
+	if err := validateTableName(ctx, s, tableName); err != nil {
+		return "", err
 	}
 
-	query := fmt.Sprintf("PRAGMA table_info('%s')", tableName)
+	query := fmt.Sprintf("PRAGMA table_info(%q)", tableName)
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute query: %w", err)
@@ -84,11 +109,11 @@ func (s *SqliteAdapter) GetSchema(ctx context.Context, tableName string) (string
 		}
 
 		colInfo := map[string]interface{}{
-			"cid":       cid,
-			"name":      name,
-			"type":      typ,
-			"notnull":   notnull,
-			"pk":        pk,
+			"cid":     cid,
+			"name":    name,
+			"type":    typ,
+			"notnull": notnull,
+			"pk":      pk,
 		}
 		if dfltValue.Valid {
 			colInfo["dflt_value"] = dfltValue.String
@@ -116,15 +141,8 @@ func (s *SqliteAdapter) GetSchema(ctx context.Context, tableName string) (string
 }
 
 func (s *SqliteAdapter) RunReadonlyQuery(ctx context.Context, query string) (string, error) {
-	upperQuery := strings.ToUpper(query)
-	if !strings.Contains(upperQuery, "LIMIT ") {
-		query = strings.TrimSpace(query)
-		if strings.HasSuffix(query, ";") {
-			query = query[:len(query)-1]
-		}
-		query = fmt.Sprintf("%s LIMIT 50;", query)
-	}
-
+	// Connections are opened with PRAGMA query_only = ON, so writes are rejected
+	// by the engine regardless of the query text.
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute query: %w", err)
@@ -136,8 +154,8 @@ func (s *SqliteAdapter) RunReadonlyQuery(ctx context.Context, query string) (str
 		return "", fmt.Errorf("failed to get columns: %w", err)
 	}
 
-	var results []map[string]interface{}
-	
+	results := []map[string]interface{}{}
+
 	// Create a slice of interface{} to hold values
 	values := make([]interface{}, len(columns))
 	for i := range values {
@@ -145,6 +163,9 @@ func (s *SqliteAdapter) RunReadonlyQuery(ctx context.Context, query string) (str
 	}
 
 	for rows.Next() {
+		if len(results) >= MaxQueryRows {
+			break
+		}
 		err = rows.Scan(values...)
 		if err != nil {
 			return "", fmt.Errorf("failed to scan row: %w", err)
@@ -153,7 +174,7 @@ func (s *SqliteAdapter) RunReadonlyQuery(ctx context.Context, query string) (str
 		rowMap := make(map[string]interface{})
 		for i, colName := range columns {
 			val := *(values[i].(*interface{}))
-			
+
 			// Handle byte slices (often strings in sqlite)
 			if b, ok := val.([]byte); ok {
 				rowMap[colName] = string(b)
@@ -164,8 +185,10 @@ func (s *SqliteAdapter) RunReadonlyQuery(ctx context.Context, query string) (str
 		results = append(results, rowMap)
 	}
 
-	if err := rows.Err(); err != nil {
-		return "", fmt.Errorf("rows iteration error: %w", err)
+	if len(results) < MaxQueryRows {
+		if err := rows.Err(); err != nil {
+			return "", fmt.Errorf("rows iteration error: %w", err)
+		}
 	}
 
 	jsonResult, err := json.MarshalIndent(results, "", "  ")
@@ -174,4 +197,9 @@ func (s *SqliteAdapter) RunReadonlyQuery(ctx context.Context, query string) (str
 	}
 
 	return string(jsonResult), nil
+}
+
+// Close closes the underlying database handle.
+func (s *SqliteAdapter) Close() error {
+	return s.db.Close()
 }

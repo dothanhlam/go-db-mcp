@@ -33,5 +33,7 @@ COPY --from=builder /mcp-server /app/mcp-server
 
 EXPOSE 6969
 ENV PORT=6969
+# Bind all interfaces inside the container so the published port is reachable.
+ENV HOST=0.0.0.0
 
 ENTRYPOINT ["xvfb-run", "-a", "dbus-run-session", "/app/mcp-server"]

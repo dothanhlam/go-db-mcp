@@ -1,33 +1,34 @@
 # go-db-mcp
 
-A Multi-Database Model Context Protocol (MCP) Server built in Golang. This server implements the [Model Context Protocol](https://modelcontextprotocol.io/) to expose database introspection and safe querying capabilities over STDIO, allowing AI agents and editors like Cursor to seamlessly interact with multiple databases.
+A Multi-Database Model Context Protocol (MCP) Server built in Golang. This server implements the [Model Context Protocol](https://modelcontextprotocol.io/) to expose database introspection and safe querying capabilities over an HTTP/SSE transport, allowing AI agents and editors like Cursor to seamlessly interact with multiple databases.
 
 ## Security Notice
 
 > [!WARNING]
 > **This tool is designed for LOCAL usage only.**
-> While it provides basic protections (like filtering destructive keywords and appending limits), it bypasses robust database security mechanisms (like proper Role-Based Access Control or strict SQL parsing). Exposing this tool over a public network or running it against production databases without strict isolation is highly discouraged.
+> Queries run inside database-enforced read-only transactions (`READ ONLY` on Postgres/MySQL, `PRAGMA query_only` on SQLite) and results are capped at 50 rows, but this is not a substitute for a properly scoped, least-privilege database user. The SSE server binds to `127.0.0.1` by default; because the `configure_connection` tool accepts arbitrary DSNs, do not expose the port publicly. Running against production databases without strict isolation is highly discouraged.
 
 ## Architecture
 
 The project is structured with a strong focus on modularity and extensibility:
 
 - **`database/client.go`**: Defines the `DatabaseClient` interface, ensuring a unified contract (`ListTables`, `GetSchema`, `RunReadonlyQuery`) for any database engine.
-- **Adapters (`postgres_adapter.go`, `mysql_adapter.go`)**: Concrete implementations of `DatabaseClient` for PostgreSQL and MySQL. They handle engine-specific logic like querying `information_schema` vs. `DESCRIBE`.
-- **`database/manager.go`**: The `ConnectionManager` acts as a factory and registry, reading configurations from the environment and initializing available adapters under logical connection IDs (e.g., `pg_main`, `mysql_legacy`).
-- **`tools/`**: Registers MCP tools. Every tool expects a `connection_id` to route requests to the correct database adapter via the Connection Manager. 
-- **`main.go`**: The entry point. Initializes the manager and tools, and starts the MCP server listening on STDIO.
+- **Adapters (`postgres_adapter.go`, `mysql_adapter.go`, `sqlite_adapter.go`)**: Concrete implementations of `DatabaseClient` for PostgreSQL, MySQL, and SQLite. They handle engine-specific logic like querying `information_schema` vs. `DESCRIBE` vs. `PRAGMA`.
+- **`database/manager.go`**: The `ConnectionManager` acts as a factory and registry. Connections are added at runtime via the `configure_connection` tool and stored under logical connection IDs (e.g., `pg_main`, `mysql_legacy`). Re-using an ID closes the previous connection.
+- **`tools/`**: Registers MCP tools. Every tool expects a `connection_id` to route requests to the correct database adapter via the Connection Manager.
+- **`main.go`**: The entry point. Initializes the manager and tools, and starts the MCP server over HTTP/SSE.
 
 ## Features
 
 - **Multi-Database Support**: Connect to multiple databases (PostgreSQL, MySQL, SQLite) simultaneously.
 - **Dynamic Routing**: Route queries to specific databases using connection IDs.
-- **Safe Read-Only Querying**: The `run_readonly_query` tool strictly filters out destructive SQL keywords (`DROP`, `DELETE`, `UPDATE`, `INSERT`, `TRUNCATE`, `ALTER`) and automatically enforces a `LIMIT 50` on all queries to prevent memory overload.
+- **Safe Read-Only Querying**: The `run_readonly_query` tool runs every query inside a database-enforced read-only transaction, rejects a first-pass list of destructive keywords, and caps results at 50 rows (enforced while scanning, so it can't be bypassed by the query text).
 
 ## Available MCP Tools
 
 | Tool Name | Arguments | Description |
 | :--- | :--- | :--- |
+| `configure_connection` | `connection_id`, `db_type`, `dsn` | Register a database connection at runtime (`db_type`: `postgres`, `mysql`, or `sqlite`). |
 | `list_connections` | (none) | Get a list of available database connection IDs configured in the server. |
 | `list_tables` | `connection_id` | Get a list of all tables in the specified database connection. |
 | `get_schema` | `connection_id`, `table_name` | Extract schema metadata (columns, types, nullability) for a specific table. |
@@ -55,6 +56,11 @@ The server runs as an HTTP server using the Server-Sent Events (SSE) transport b
 You can override the port using the `PORT` or `MCP_PORT` environment variables:
 ```bash
 PORT=8080 ./go-db-mcp
+```
+
+By default the server binds to `127.0.0.1` (loopback only). To listen on all interfaces — for example inside a container — set `HOST`:
+```bash
+HOST=0.0.0.0 PORT=6969 ./go-db-mcp
 ```
 
 The endpoints are:

@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -107,19 +107,15 @@ func (p *PostgresAdapter) GetSchema(ctx context.Context, tableName string) (stri
 }
 
 func (p *PostgresAdapter) RunReadonlyQuery(ctx context.Context, query string) (string, error) {
-	// Simple append of LIMIT 50. In a robust system, you'd want to parse the SQL properly
-	// to inject LIMIT safely, but string appending works for simple cases.
-	// Check if the query already has a LIMIT (basic check).
-	upperQuery := strings.ToUpper(query)
-	if !strings.Contains(upperQuery, "LIMIT ") {
-		query = strings.TrimSpace(query)
-		if strings.HasSuffix(query, ";") {
-			query = query[:len(query)-1] // Remove trailing semicolon
-		}
-		query = fmt.Sprintf("%s LIMIT 50;", query)
+	// Enforce read-only at the database layer. Any write attempt (including via
+	// functions or writable CTEs) is rejected by Postgres itself.
+	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return "", fmt.Errorf("failed to begin read-only transaction: %w", err)
 	}
+	defer tx.Rollback(ctx)
 
-	rows, err := p.pool.Query(ctx, query)
+	rows, err := tx.Query(ctx, query)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -131,8 +127,11 @@ func (p *PostgresAdapter) RunReadonlyQuery(ctx context.Context, query string) (s
 		columns = append(columns, string(fd.Name))
 	}
 
-	var results []map[string]interface{}
+	results := []map[string]interface{}{}
 	for rows.Next() {
+		if len(results) >= MaxQueryRows {
+			break
+		}
 		values, err := rows.Values()
 		if err != nil {
 			return "", fmt.Errorf("failed to scan row: %w", err)
@@ -145,8 +144,12 @@ func (p *PostgresAdapter) RunReadonlyQuery(ctx context.Context, query string) (s
 		results = append(results, rowMap)
 	}
 
-	if err := rows.Err(); err != nil {
-		return "", fmt.Errorf("rows iteration error: %w", err)
+	// Only surface iteration errors if we consumed the whole result set; an early
+	// break to honour MaxQueryRows is not an error.
+	if len(results) < MaxQueryRows {
+		if err := rows.Err(); err != nil {
+			return "", fmt.Errorf("rows iteration error: %w", err)
+		}
 	}
 
 	jsonResult, err := json.MarshalIndent(results, "", "  ")
@@ -155,4 +158,10 @@ func (p *PostgresAdapter) RunReadonlyQuery(ctx context.Context, query string) (s
 	}
 
 	return string(jsonResult), nil
+}
+
+// Close releases the connection pool.
+func (p *PostgresAdapter) Close() error {
+	p.pool.Close()
+	return nil
 }

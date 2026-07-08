@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -22,8 +23,13 @@ func NewMysqlAdapter(dsn string) (*MysqlAdapter, error) {
 		return nil, fmt.Errorf("unable to connect to database: %v", err)
 	}
 
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
 	// Test the connection
 	if err := db.Ping(); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("unable to ping database: %v", err)
 	}
 
@@ -55,12 +61,13 @@ func (m *MysqlAdapter) ListTables(ctx context.Context) ([]string, error) {
 }
 
 func (m *MysqlAdapter) GetSchema(ctx context.Context, tableName string) (string, error) {
-	// Sanitize table name somewhat (prevent basic SQL injection)
-	if strings.ContainsAny(tableName, " ;'`\"") {
-		return "", fmt.Errorf("invalid table name")
+	// Allowlist the identifier: it must be one of the real tables. This prevents
+	// SQL injection since the name cannot be parameterized in a DESCRIBE.
+	if err := validateTableName(ctx, m, tableName); err != nil {
+		return "", err
 	}
 
-	query := fmt.Sprintf("DESCRIBE %s", tableName)
+	query := fmt.Sprintf("DESCRIBE `%s`", strings.ReplaceAll(tableName, "`", "``"))
 	rows, err := m.db.QueryContext(ctx, query)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute query: %w", err)
@@ -109,17 +116,14 @@ func (m *MysqlAdapter) GetSchema(ctx context.Context, tableName string) (string,
 }
 
 func (m *MysqlAdapter) RunReadonlyQuery(ctx context.Context, query string) (string, error) {
-	// Append LIMIT 50 if not present
-	upperQuery := strings.ToUpper(query)
-	if !strings.Contains(upperQuery, "LIMIT ") {
-		query = strings.TrimSpace(query)
-		if strings.HasSuffix(query, ";") {
-			query = query[:len(query)-1]
-		}
-		query = fmt.Sprintf("%s LIMIT 50;", query)
+	// Enforce read-only at the database layer via START TRANSACTION READ ONLY.
+	tx, err := m.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return "", fmt.Errorf("failed to begin read-only transaction: %w", err)
 	}
+	defer tx.Rollback()
 
-	rows, err := m.db.QueryContext(ctx, query)
+	rows, err := tx.QueryContext(ctx, query)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -130,11 +134,11 @@ func (m *MysqlAdapter) RunReadonlyQuery(ctx context.Context, query string) (stri
 		return "", fmt.Errorf("failed to get columns: %w", err)
 	}
 
-	var results []map[string]interface{}
-	
+	results := []map[string]interface{}{}
+
 	// Make a slice for the values
 	values := make([]sql.RawBytes, len(columns))
-	
+
 	// rows.Scan wants '[]interface{}' as an argument, so we must copy the
 	// references into such a slice
 	scanArgs := make([]interface{}, len(values))
@@ -143,6 +147,9 @@ func (m *MysqlAdapter) RunReadonlyQuery(ctx context.Context, query string) (stri
 	}
 
 	for rows.Next() {
+		if len(results) >= MaxQueryRows {
+			break
+		}
 		err = rows.Scan(scanArgs...)
 		if err != nil {
 			return "", fmt.Errorf("failed to scan row: %w", err)
@@ -160,8 +167,10 @@ func (m *MysqlAdapter) RunReadonlyQuery(ctx context.Context, query string) (stri
 		results = append(results, rowMap)
 	}
 
-	if err := rows.Err(); err != nil {
-		return "", fmt.Errorf("rows iteration error: %w", err)
+	if len(results) < MaxQueryRows {
+		if err := rows.Err(); err != nil {
+			return "", fmt.Errorf("rows iteration error: %w", err)
+		}
 	}
 
 	jsonResult, err := json.MarshalIndent(results, "", "  ")
@@ -170,4 +179,9 @@ func (m *MysqlAdapter) RunReadonlyQuery(ctx context.Context, query string) (stri
 	}
 
 	return string(jsonResult), nil
+}
+
+// Close closes the underlying connection pool.
+func (m *MysqlAdapter) Close() error {
+	return m.db.Close()
 }
