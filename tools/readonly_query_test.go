@@ -18,6 +18,9 @@ func TestIsReadonlyQuery(t *testing.T) {
 		{"TRUNCATE users", false},
 		{"ALTER TABLE users ADD c INT", false},
 		{"SELECT 1; DELETE FROM users", false},
+		// MongoDB find/aggregate specs are JSON and must pass through this gate.
+		{`{"collection":"users","filter":{"status":"deleted"}}`, true},
+		{`[{"$match":{"x":1}}]`, true},
 	}
 	for _, c := range cases {
 		if got := isReadonlyQuery(c.query); got != c.want {

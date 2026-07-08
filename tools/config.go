@@ -13,7 +13,7 @@ func RegisterConfigureConnectionTool(s *server.MCPServer, manager *database.Conn
 	tool := mcp.NewTool("configure_connection",
 		mcp.WithDescription("Dynamically configure a new database connection at runtime."),
 		mcp.WithString("connection_id", mcp.Required(), mcp.Description("A unique identifier for this connection (e.g., 'pg_main')")),
-		mcp.WithString("db_type", mcp.Required(), mcp.Description("The type of database: 'postgres', 'mysql', or 'sqlite'")),
+		mcp.WithString("db_type", mcp.Required(), mcp.Description("The type of database: 'postgres', 'mysql', 'sqlite', or 'mongodb'")),
 		mcp.WithString("dsn", mcp.Required(), mcp.Description("The connection string (DSN)")),
 	)
 

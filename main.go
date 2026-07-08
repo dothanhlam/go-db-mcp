@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -89,15 +90,26 @@ func onReady() {
 		}
 		addr := host + ":" + port
 
-		// Start as SSE server
-		sse := server.NewSSEServer(s)
+		// Serve both MCP transports on the same port so modern and legacy clients
+		// can connect:
+		//   - Streamable HTTP: http://<host>:<port>/mcp   (current spec; Cursor)
+		//   - SSE (legacy):    http://<host>:<port>/sse
+		streamableServer := server.NewStreamableHTTPServer(s)
+		sseServer := server.NewSSEServer(s)
 
-		log.Printf("Starting MCP SSE server on %s", addr)
+		mux := http.NewServeMux()
+		mux.Handle("/mcp", streamableServer)
+		mux.Handle("/sse", sseServer)
+		mux.Handle("/message", sseServer)
+
+		httpServer := &http.Server{Addr: addr, Handler: mux}
+
+		log.Printf("Starting MCP server on %s (streamable-http: /mcp, sse: /sse)", addr)
 		// Update tooltip to show port
-		systray.SetTooltip(fmt.Sprintf("Database MCP Server (SSE :%s)", port))
+		systray.SetTooltip(fmt.Sprintf("Database MCP Server (:%s)", port))
 
-		if err := sse.Start(addr); err != nil {
-			log.Printf("SSE server error: %v", err)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
 			systray.Quit()
 		}
 	}()

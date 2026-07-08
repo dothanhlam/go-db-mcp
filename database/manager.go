@@ -36,6 +36,8 @@ func (m *ConnectionManager) AddConnection(ctx context.Context, id, dbType, dsn s
 		adapter, err = NewMysqlAdapter(dsn)
 	case "sqlite":
 		adapter, err = NewSqliteAdapter(dsn)
+	case "mongodb", "mongo":
+		adapter, err = NewMongoAdapter(ctx, dsn)
 	default:
 		return fmt.Errorf("unsupported database type: %s", dbType)
 	}
