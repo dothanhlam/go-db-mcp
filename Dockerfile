@@ -18,22 +18,22 @@ FROM debian:bookworm-slim
 
 WORKDIR /app
 
-# Install runtime libraries for GTK and sqlite3, plus xvfb and dbus-x11 for headless systray
+# Runtime libraries. The binary links GTK/appindicator (systray is compiled in),
+# so the shared objects must be present even though the tray is not started in
+# headless mode.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libgtk-3-0 \
     libayatana-appindicator3-1 \
     ca-certificates \
-    xvfb \
-    dbus-x11 \
-    xauth \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /mcp-server /app/mcp-server
 
 EXPOSE 6969
 ENV PORT=6969
-# Bind all interfaces inside the container so the published port is reachable.
-ENV HOST=0.0.0.0
+# Run without the system tray: no display, D-Bus, or Xvfb needed. Headless mode
+# also binds 0.0.0.0 by default so the published port is reachable.
+ENV HEADLESS=1
 
-ENTRYPOINT ["xvfb-run", "-a", "dbus-run-session", "/app/mcp-server"]
+ENTRYPOINT ["/app/mcp-server"]

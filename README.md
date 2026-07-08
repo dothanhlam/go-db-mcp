@@ -74,14 +74,17 @@ The endpoints are:
 
 The project can be run as a Docker container. The provided `Dockerfile` uses a multi-stage build to keep the image as small as possible.
 
-**Important Note on System Tray:**
-The application natively uses `github.com/energye/systray` to display an icon in your operating system's menu bar (e.g., the Mac topbar). Docker containers run in isolated Linux environments without access to your host OS's native GUI APIs. To prevent the application from crashing in Docker, it is configured to run headlessly within a virtual framebuffer (`xvfb-run`) and a mock D-Bus session.
-**As a result, the tray icon will NOT be visible on your host machine when running via Docker.** If you require the tray icon to be visible, please run the application natively on your host machine.
+**Headless by default:** the image sets `HEADLESS=1`, so the container runs the MCP server **without** the system tray — no display, D-Bus, or Xvfb required. (The tray only makes sense when running natively on your desktop, where the app shows an icon in your menu bar.) Headless mode also binds `0.0.0.0` so the published port is reachable from the host.
 
 **Build and Run:**
 ```bash
 docker build -t go-db-mcp .
 docker run -d -p 6969:6969 --name go-db-mcp go-db-mcp
+```
+
+Then point your MCP client at `http://localhost:6969/mcp`. You can also run headless outside Docker:
+```bash
+HEADLESS=1 ./go-db-mcp
 ```
 
 ### 5. Integration with Cursor / Antigravity
